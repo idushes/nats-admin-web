@@ -38,6 +38,11 @@ import {
   Database,
   Plus,
   Loader2,
+  ChevronRight,
+  Pencil,
+  Trash2,
+  Save,
+  X,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -75,6 +80,47 @@ const KV_CREATE_MUTATION = `
     }
   }
 `;
+
+const KV_KEYS_QUERY = `
+  query($bucket: String!) {
+    kvKeys(bucket: $bucket)
+  }
+`;
+
+const KV_GET_QUERY = `
+  query($bucket: String!, $key: String!) {
+    kvGet(bucket: $bucket, key: $key) {
+      key
+      value
+      revision
+      created
+    }
+  }
+`;
+
+const KV_PUT_MUTATION = `
+  mutation($bucket: String!, $key: String!, $value: String!) {
+    kvPut(bucket: $bucket, key: $key, value: $value) {
+      key
+      value
+      revision
+      created
+    }
+  }
+`;
+
+const KV_DELETE_MUTATION = `
+  mutation($bucket: String!, $key: String!) {
+    kvDelete(bucket: $bucket, key: $key)
+  }
+`;
+
+interface KVEntry {
+  key: string;
+  value: string;
+  revision: number;
+  created: string;
+}
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return "0 B";
@@ -260,14 +306,429 @@ function CreateKVDialog({ onCreated }: { onCreated: () => void }) {
   );
 }
 
+/* ─── KV Keys Dialog ─── */
+function tryFormatJSON(data: string): { formatted: string; isJSON: boolean } {
+  try {
+    const parsed = JSON.parse(data);
+    return { formatted: JSON.stringify(parsed, null, 2), isJSON: true };
+  } catch {
+    return { formatted: data, isJSON: false };
+  }
+}
+
+function formatEntryTime(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+/* Single key row with expandable value */
+function KVKeyRow({
+  bucket,
+  keyName,
+  onDeleted,
+}: {
+  bucket: string;
+  keyName: string;
+  onDeleted: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [entry, setEntry] = useState<KVEntry | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const loadValue = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await graphqlRequest<{ kvGet: KVEntry }>(KV_GET_QUERY, {
+        bucket,
+        key: keyName,
+      });
+      setEntry(data.kvGet);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load value");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleToggle = async () => {
+    if (expanded) {
+      setExpanded(false);
+      setEditing(false);
+      return;
+    }
+    setExpanded(true);
+    if (!entry) await loadValue();
+  };
+
+  const handleEdit = () => {
+    if (!entry) return;
+    setEditValue(entry.value);
+    setEditing(true);
+  };
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      setError(null);
+      const data = await graphqlRequest<{ kvPut: KVEntry }>(KV_PUT_MUTATION, {
+        bucket,
+        key: keyName,
+        value: editValue,
+      });
+      setEntry(data.kvPut);
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    try {
+      setDeleting(true);
+      setError(null);
+      await graphqlRequest(KV_DELETE_MUTATION, { bucket, key: keyName });
+      onDeleted();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete");
+      setDeleting(false);
+    }
+  };
+
+  const valueDisplay = entry && !editing ? tryFormatJSON(entry.value) : null;
+
+  return (
+    <div className="py-1.5 first:pt-0">
+      <button
+        onClick={handleToggle}
+        className="flex items-center gap-2 w-full text-left group py-1 rounded hover:bg-muted/30 px-1 -mx-1 transition-colors"
+      >
+        <ChevronRight
+          className={`h-3.5 w-3.5 text-muted-foreground/50 shrink-0 transition-transform ${
+            expanded ? "rotate-90" : ""
+          }`}
+        />
+        <code className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-mono font-medium text-primary">
+          {keyName}
+        </code>
+        {entry && (
+          <span className="text-[11px] text-muted-foreground/40 ml-auto">
+            rev {entry.revision}
+          </span>
+        )}
+      </button>
+
+      {expanded && (
+        <div className="ml-5 mt-1.5">
+          {loading && (
+            <div className="flex items-center gap-2 py-2">
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+              <span className="text-xs text-muted-foreground">Loading...</span>
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-center gap-2 py-1">
+              <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+              <span className="text-xs text-destructive">{error}</span>
+            </div>
+          )}
+
+          {entry && !editing && valueDisplay && (
+            <div>
+              <div className="flex items-center gap-3 mb-1">
+                <span className="text-[11px] text-muted-foreground/50">
+                  rev {entry.revision}
+                </span>
+                <span className="text-[11px] text-muted-foreground/50">
+                  {formatEntryTime(entry.created)}
+                </span>
+                <div className="ml-auto flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                    onClick={handleEdit}
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                    onClick={handleDelete}
+                    disabled={deleting}
+                  >
+                    {deleting ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-3 w-3" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+              <pre
+                className={`text-xs rounded-md bg-muted/30 p-2.5 overflow-x-auto font-mono ${
+                  valueDisplay.isJSON ? "text-emerald-400/80" : "text-foreground/70"
+                }`}
+              >
+                {valueDisplay.formatted}
+              </pre>
+            </div>
+          )}
+
+          {editing && (
+            <div className="space-y-2">
+              <textarea
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                className="w-full rounded-md border border-border bg-background p-2.5 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary min-h-[80px] resize-y"
+                disabled={saving}
+                autoFocus
+              />
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  onClick={handleSave}
+                  disabled={saving}
+                >
+                  {saving ? (
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                  ) : (
+                    <Save className="h-3 w-3" />
+                  )}
+                  {saving ? "Saving..." : "Save"}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1.5 text-xs"
+                  onClick={() => setEditing(false)}
+                  disabled={saving}
+                >
+                  <X className="h-3 w-3" />
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function KVKeysDialog({
+  bucket,
+  open,
+  onOpenChange,
+}: {
+  bucket: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [keys, setKeys] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showPut, setShowPut] = useState(false);
+  const [putKey, setPutKey] = useState("");
+  const [putValue, setPutValue] = useState("");
+  const [putting, setPutting] = useState(false);
+  const [putError, setPutError] = useState<string | null>(null);
+
+  const fetchKeys = useCallback(async () => {
+    if (!bucket) return;
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await graphqlRequest<{ kvKeys: string[] }>(KV_KEYS_QUERY, {
+        bucket,
+      });
+      setKeys(data.kvKeys);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load keys");
+    } finally {
+      setLoading(false);
+    }
+  }, [bucket]);
+
+  useEffect(() => {
+    if (!bucket || !open) return;
+    fetchKeys();
+  }, [bucket, open, fetchKeys]);
+
+  const handlePut = async () => {
+    if (!bucket || !putKey.trim()) {
+      setPutError("Key is required");
+      return;
+    }
+    try {
+      setPutting(true);
+      setPutError(null);
+      await graphqlRequest(KV_PUT_MUTATION, {
+        bucket,
+        key: putKey.trim(),
+        value: putValue,
+      });
+      setPutKey("");
+      setPutValue("");
+      setShowPut(false);
+      fetchKeys();
+    } catch (err) {
+      setPutError(err instanceof Error ? err.message : "Failed to put key");
+    } finally {
+      setPutting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => {
+      onOpenChange(v);
+      if (!v) { setShowPut(false); setPutKey(""); setPutValue(""); setPutError(null); }
+    }}>
+      <DialogContent className="sm:max-w-[700px] max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <div className="flex items-center justify-between">
+            <DialogTitle className="flex items-center gap-2">
+              <Database className="h-4 w-4 text-primary" />
+              {bucket}
+            </DialogTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 text-xs"
+              onClick={() => setShowPut(!showPut)}
+            >
+              <Plus className="h-3 w-3" />
+              Put Key
+            </Button>
+          </div>
+          <DialogDescription>
+            {loading ? "Loading keys..." : `${keys.length} key${keys.length !== 1 ? "s" : ""}`}
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Put Key form */}
+        {showPut && (
+          <div className="rounded-lg border border-border/50 bg-muted/20 p-3 space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <Input
+                placeholder="Key name"
+                value={putKey}
+                onChange={(e) => setPutKey(e.target.value)}
+                disabled={putting}
+                className="h-8 text-xs font-mono"
+              />
+            </div>
+            <textarea
+              placeholder="Value"
+              value={putValue}
+              onChange={(e) => setPutValue(e.target.value)}
+              className="w-full rounded-md border border-border bg-background p-2 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary min-h-[60px] resize-y"
+              disabled={putting}
+            />
+            {putError && (
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-3.5 w-3.5 text-destructive" />
+                <span className="text-xs text-destructive">{putError}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                className="h-7 gap-1.5 text-xs"
+                onClick={handlePut}
+                disabled={putting}
+              >
+                {putting ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Save className="h-3 w-3" />
+                )}
+                {putting ? "Saving..." : "Save"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => { setShowPut(false); setPutError(null); }}
+                disabled={putting}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-center gap-2 px-4 py-3">
+              <AlertCircle className="h-4 w-4 text-destructive" />
+              <p className="text-xs text-destructive">{error}</p>
+            </div>
+          )}
+
+          {!loading && !error && keys.length === 0 && (
+            <p className="py-12 text-center text-sm text-muted-foreground/60">
+              No keys in this bucket
+            </p>
+          )}
+
+          {!loading && !error && keys.length > 0 && bucket && (
+            <div className="divide-y divide-border/20">
+              {keys.map((keyName) => (
+                <KVKeyRow
+                  key={keyName}
+                  bucket={bucket}
+                  keyName={keyName}
+                  onDeleted={fetchKeys}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ─── Mobile Card ─── */
-function KVCard({ kv }: { kv: KeyValue }) {
+function KVCard({ kv, onViewKeys }: { kv: KeyValue; onViewKeys: () => void }) {
   return (
     <Card className="border-border/50 bg-card/50">
       <CardContent className="space-y-3 p-4">
-        <div className="flex items-center gap-2">
-          <Database className="h-3.5 w-3.5 text-primary" />
-          <span className="font-semibold">{kv.bucket}</span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Database className="h-3.5 w-3.5 text-primary" />
+            <span className="font-semibold">{kv.bucket}</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground"
+            onClick={onViewKeys}
+          >
+            Keys
+          </Button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -326,6 +787,7 @@ export default function KVPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedBucket, setSelectedBucket] = useState<string | null>(null);
   const isMobile = useIsMobile();
 
   const fetchKV = useCallback(async (isRefresh = false) => {
@@ -383,12 +845,25 @@ export default function KVPage() {
         </div>
       )}
 
+      {/* KV Keys Dialog */}
+      <KVKeysDialog
+        bucket={selectedBucket}
+        open={selectedBucket !== null}
+        onOpenChange={(open) => { if (!open) setSelectedBucket(null); }}
+      />
+
       {/* Mobile: Cards / Desktop: Table */}
       {isMobile ? (
         <div className="space-y-3">
           {loading
             ? Array.from({ length: 3 }).map((_, i) => <KVCardSkeleton key={i} />)
-            : kvStores.map((kv) => <KVCard key={kv.bucket} kv={kv} />)}
+            : kvStores.map((kv) => (
+                <KVCard
+                  key={kv.bucket}
+                  kv={kv}
+                  onViewKeys={() => setSelectedBucket(kv.bucket)}
+                />
+              ))}
         </div>
       ) : (
         <div className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm">
@@ -416,7 +891,7 @@ export default function KVPage() {
                     </TableRow>
                   ))
                 : kvStores.map((kv) => (
-                    <TableRow key={kv.bucket} className="group transition-colors">
+                    <TableRow key={kv.bucket} className="group transition-colors cursor-pointer" onClick={() => setSelectedBucket(kv.bucket)}>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Database className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
