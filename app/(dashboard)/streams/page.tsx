@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { graphqlRequest } from "@/lib/graphql-client";
 import {
   Table,
@@ -37,7 +37,6 @@ import {
   RefreshCw,
   AlertCircle,
   Radio,
-  ChevronDown,
   Loader2,
   Plus,
 } from "lucide-react";
@@ -426,19 +425,22 @@ function CreateStreamDialog({ onCreated }: { onCreated: () => void }) {
   );
 }
 
-/* ─── Messages Panel ─── */
-function MessagesPanel({
+/* ─── Messages Dialog ─── */
+function MessagesDialog({
   streamName,
-  onClose,
+  open,
+  onOpenChange,
 }: {
-  streamName: string;
-  onClose: () => void;
+  streamName: string | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
   const [messages, setMessages] = useState<StreamMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!streamName || !open) return;
     (async () => {
       try {
         setLoading(true);
@@ -455,166 +457,156 @@ function MessagesPanel({
         setLoading(false);
       }
     })();
-  }, [streamName]);
+  }, [streamName, open]);
 
   return (
-    <div className="border-t border-border/30 bg-muted/20">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border/20">
-        <p className="text-xs font-medium text-muted-foreground">
-          Last messages in{" "}
-          <span className="text-foreground">{streamName}</span>
-        </p>
-        <Button variant="ghost" size="sm" className="h-6 px-2 text-xs" onClick={onClose}>
-          Close
-        </Button>
-      </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[700px] max-h-[85vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Radio className="h-4 w-4 text-primary" />
+            {streamName}
+          </DialogTitle>
+          <DialogDescription>Last 10 messages</DialogDescription>
+        </DialogHeader>
 
-      {loading && (
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-center gap-2 px-4 py-3">
+              <AlertCircle className="h-4 w-4 text-destructive" />
+              <p className="text-xs text-destructive">{error}</p>
+            </div>
+          )}
+
+          {!loading && !error && messages.length === 0 && (
+            <p className="py-12 text-center text-sm text-muted-foreground/60">
+              No messages in this stream
+            </p>
+          )}
+
+          {!loading && !error && messages.length > 0 && (
+            <div className="divide-y divide-border/20">
+              {messages.map((msg) => {
+                const { formatted, isJSON } = tryFormatJSON(msg.data);
+                return (
+                  <div key={msg.sequence} className="px-1 py-3 first:pt-0">
+                    <div className="flex items-center gap-3 mb-1.5">
+                      <span className="font-mono text-xs text-muted-foreground/60">
+                        #{msg.sequence}
+                      </span>
+                      <code className="rounded bg-muted/50 px-1.5 py-0.5 text-xs font-mono text-muted-foreground">
+                        {msg.subject}
+                      </code>
+                      <span className="ml-auto text-[11px] text-muted-foreground/50">
+                        {formatMessageTime(msg.published)}
+                      </span>
+                    </div>
+                    <pre
+                      className={`text-xs rounded-md bg-muted/30 p-2.5 overflow-x-auto font-mono ${
+                        isJSON ? "text-emerald-400/80" : "text-foreground/70"
+                      }`}
+                    >
+                      {formatted}
+                    </pre>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
-
-      {error && (
-        <div className="flex items-center gap-2 px-4 py-3">
-          <AlertCircle className="h-4 w-4 text-destructive" />
-          <p className="text-xs text-destructive">{error}</p>
-        </div>
-      )}
-
-      {!loading && !error && messages.length === 0 && (
-        <p className="px-4 py-6 text-center text-xs text-muted-foreground/60">
-          No messages in this stream
-        </p>
-      )}
-
-      {!loading && !error && messages.length > 0 && (
-        <div className="divide-y divide-border/20 max-h-[400px] overflow-auto">
-          {messages.map((msg) => {
-            const { formatted, isJSON } = tryFormatJSON(msg.data);
-            return (
-              <div key={msg.sequence} className="px-4 py-3 hover:bg-muted/30 transition-colors">
-                <div className="flex items-center gap-3 mb-1.5">
-                  <span className="font-mono text-xs text-muted-foreground/60">
-                    #{msg.sequence}
-                  </span>
-                  <code className="rounded bg-muted/50 px-1.5 py-0.5 text-xs font-mono text-muted-foreground">
-                    {msg.subject}
-                  </code>
-                  <span className="ml-auto text-[11px] text-muted-foreground/50">
-                    {formatMessageTime(msg.published)}
-                  </span>
-                </div>
-                <pre
-                  className={`text-xs rounded-md bg-background/50 p-2.5 overflow-x-auto font-mono ${
-                    isJSON ? "text-emerald-400/80" : "text-foreground/70"
-                  }`}
-                >
-                  {formatted}
-                </pre>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
 /* ─── Mobile Card View ─── */
 function StreamCard({
   stream,
-  isExpanded,
-  onToggle,
+  onViewMessages,
 }: {
   stream: StreamInfo;
-  isExpanded: boolean;
-  onToggle: () => void;
+  onViewMessages: () => void;
 }) {
   return (
     <Card className="border-border/50 bg-card/50 overflow-hidden">
-      <CardContent className="p-0">
-        <button
-          onClick={onToggle}
-          className="flex items-center justify-between w-full p-4 text-left"
-        >
-          <div className="space-y-3 flex-1">
-            <div className="flex items-center gap-2">
-              <Radio className="h-3.5 w-3.5 text-primary" />
-              <span className="font-semibold">{stream.name}</span>
-            </div>
+      <CardContent className="space-y-3 p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Radio className="h-3.5 w-3.5 text-primary" />
+            <span className="font-semibold">{stream.name}</span>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs text-muted-foreground"
+            onClick={onViewMessages}
+          >
+            Messages
+          </Button>
+        </div>
 
-            <div className="flex flex-wrap gap-1">
-              {stream.subjects.map((s) => (
-                <code
-                  key={s}
-                  className="rounded bg-muted/50 px-1.5 py-0.5 text-xs font-mono text-muted-foreground"
-                >
-                  {s}
-                </code>
-              ))}
-            </div>
+        <div className="flex flex-wrap gap-1">
+          {stream.subjects.map((s) => (
+            <code
+              key={s}
+              className="rounded bg-muted/50 px-1.5 py-0.5 text-xs font-mono text-muted-foreground"
+            >
+              {s}
+            </code>
+          ))}
+        </div>
 
-            <div className="flex items-center gap-2">
-              <Badge
-                variant="outline"
-                className={retentionColor(stream.retention)}
-              >
-                {stream.retention}
-              </Badge>
-              <Badge
-                variant="outline"
-                className={storageColor(stream.storage)}
-              >
-                {stream.storage}
-              </Badge>
-            </div>
+        <div className="flex items-center gap-2">
+          <Badge
+            variant="outline"
+            className={retentionColor(stream.retention)}
+          >
+            {stream.retention}
+          </Badge>
+          <Badge
+            variant="outline"
+            className={storageColor(stream.storage)}
+          >
+            {stream.storage}
+          </Badge>
+        </div>
 
-            <div className="grid grid-cols-3 gap-3 pt-1">
-              <div>
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground/60">
-                  Messages
-                </p>
-                <p className="font-mono text-sm font-medium">
-                  {formatNumber(stream.messages)}
-                </p>
-              </div>
-              <div>
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground/60">
-                  Size
-                </p>
-                <p className="font-mono text-sm font-medium">
-                  {formatBytes(stream.bytes)}
-                </p>
-              </div>
-              <div>
-                <p className="text-[11px] uppercase tracking-wider text-muted-foreground/60">
-                  Consumers
-                </p>
-                <p className="font-mono text-sm font-medium">
-                  {stream.consumers}
-                </p>
-              </div>
-            </div>
-
-            <p className="text-xs text-muted-foreground/60">
-              Created {formatDate(stream.created)}
+        <div className="grid grid-cols-3 gap-3 pt-1">
+          <div>
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground/60">
+              Messages
+            </p>
+            <p className="font-mono text-sm font-medium">
+              {formatNumber(stream.messages)}
             </p>
           </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground/60">
+              Size
+            </p>
+            <p className="font-mono text-sm font-medium">
+              {formatBytes(stream.bytes)}
+            </p>
+          </div>
+          <div>
+            <p className="text-[11px] uppercase tracking-wider text-muted-foreground/60">
+              Consumers
+            </p>
+            <p className="font-mono text-sm font-medium">
+              {stream.consumers}
+            </p>
+          </div>
+        </div>
 
-          <ChevronDown
-            className={`h-4 w-4 shrink-0 ml-2 text-muted-foreground transition-transform ${
-              isExpanded ? "rotate-180" : ""
-            }`}
-          />
-        </button>
-
-        {isExpanded && (
-          <MessagesPanel
-            streamName={stream.name}
-            onClose={onToggle}
-          />
-        )}
+        <p className="text-xs text-muted-foreground/60">
+          Created {formatDate(stream.created)}
+        </p>
       </CardContent>
     </Card>
   );
@@ -645,7 +637,7 @@ export default function StreamsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [expandedStream, setExpandedStream] = useState<string | null>(null);
+  const [selectedStream, setSelectedStream] = useState<string | null>(null);
   const [hideKV, setHideKV] = useState(true);
   const isMobile = useIsMobile();
 
@@ -675,10 +667,6 @@ export default function StreamsPage() {
   useEffect(() => {
     fetchStreams();
   }, [fetchStreams]);
-
-  const toggleStream = (name: string) => {
-    setExpandedStream((prev) => (prev === name ? null : name));
-  };
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -726,6 +714,13 @@ export default function StreamsPage() {
         </div>
       )}
 
+      {/* Messages Dialog */}
+      <MessagesDialog
+        streamName={selectedStream}
+        open={selectedStream !== null}
+        onOpenChange={(open) => { if (!open) setSelectedStream(null); }}
+      />
+
       {/* Mobile: Card list / Desktop: Table */}
       {isMobile ? (
         <div className="space-y-3">
@@ -737,8 +732,7 @@ export default function StreamsPage() {
                 <StreamCard
                   key={stream.name}
                   stream={stream}
-                  isExpanded={expandedStream === stream.name}
-                  onToggle={() => toggleStream(stream.name)}
+                  onViewMessages={() => setSelectedStream(stream.name)}
                 />
               ))}
         </div>
@@ -747,7 +741,6 @@ export default function StreamsPage() {
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead className="w-8" />
                 <TableHead className="w-[200px]">Name</TableHead>
                 <TableHead>Subjects</TableHead>
                 <TableHead>Retention</TableHead>
@@ -762,7 +755,7 @@ export default function StreamsPage() {
               {loading
                 ? Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 9 }).map((_, j) => (
+                      {Array.from({ length: 8 }).map((_, j) => (
                         <TableCell key={j}>
                           <Skeleton className="h-5 w-full" />
                         </TableCell>
@@ -770,78 +763,58 @@ export default function StreamsPage() {
                     </TableRow>
                   ))
                 : filteredStreams.map((stream) => (
-                    <React.Fragment key={stream.name}>
-                      <TableRow
-                        className="group transition-colors cursor-pointer"
-                        onClick={() => toggleStream(stream.name)}
-                      >
-                        <TableCell className="w-8 px-2">
-                          <ChevronDown
-                            className={`h-4 w-4 text-muted-foreground transition-transform ${
-                              expandedStream === stream.name
-                                ? "rotate-180"
-                                : ""
-                            }`}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Radio className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                            <span className="font-medium">{stream.name}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-wrap gap-1">
-                            {stream.subjects.map((s) => (
-                              <code
-                                key={s}
-                                className="rounded bg-muted/50 px-1.5 py-0.5 text-xs font-mono text-muted-foreground"
-                              >
-                                {s}
-                              </code>
-                            ))}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={retentionColor(stream.retention)}
-                          >
-                            {stream.retention}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={storageColor(stream.storage)}
-                          >
-                            {stream.storage}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {formatNumber(stream.messages)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {formatBytes(stream.bytes)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-sm">
-                          {stream.consumers}
-                        </TableCell>
-                        <TableCell className="text-right text-sm text-muted-foreground">
-                          {formatDate(stream.created)}
-                        </TableCell>
-                      </TableRow>
-                      {expandedStream === stream.name && (
-                        <TableRow key={`${stream.name}-messages`}>
-                          <TableCell colSpan={9} className="p-0">
-                            <MessagesPanel
-                              streamName={stream.name}
-                              onClose={() => setExpandedStream(null)}
-                            />
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </React.Fragment>
+                    <TableRow
+                      key={stream.name}
+                      className="group transition-colors cursor-pointer"
+                      onClick={() => setSelectedStream(stream.name)}
+                    >
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Radio className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                          <span className="font-medium">{stream.name}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {stream.subjects.map((s) => (
+                            <code
+                              key={s}
+                              className="rounded bg-muted/50 px-1.5 py-0.5 text-xs font-mono text-muted-foreground"
+                            >
+                              {s}
+                            </code>
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={retentionColor(stream.retention)}
+                        >
+                          {stream.retention}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="outline"
+                          className={storageColor(stream.storage)}
+                        >
+                          {stream.storage}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm">
+                        {formatNumber(stream.messages)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm">
+                        {formatBytes(stream.bytes)}
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-sm">
+                        {stream.consumers}
+                      </TableCell>
+                      <TableCell className="text-right text-sm text-muted-foreground">
+                        {formatDate(stream.created)}
+                      </TableCell>
+                    </TableRow>
                   ))}
             </TableBody>
           </Table>
