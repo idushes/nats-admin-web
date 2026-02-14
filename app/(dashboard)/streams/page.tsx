@@ -39,6 +39,7 @@ import {
   Radio,
   Loader2,
   Plus,
+  Trash2,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -121,6 +122,12 @@ const STREAM_CREATE_MUTATION = `
       storage
       replicas
     }
+  }
+`;
+
+const STREAM_DELETE_MUTATION = `
+  mutation($name: String!) {
+    streamDelete(name: $name)
   }
 `;
 
@@ -529,9 +536,11 @@ function MessagesDialog({
 function StreamCard({
   stream,
   onViewMessages,
+  onDelete,
 }: {
   stream: StreamInfo;
   onViewMessages: () => void;
+  onDelete: () => void;
 }) {
   return (
     <Card className="border-border/50 bg-card/50 overflow-hidden">
@@ -541,14 +550,24 @@ function StreamCard({
             <Radio className="h-3.5 w-3.5 text-primary" />
             <span className="font-semibold">{stream.name}</span>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs text-muted-foreground"
-            onClick={onViewMessages}
-          >
-            Messages
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={onViewMessages}
+            >
+              Messages
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+              onClick={onDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-1">
@@ -668,6 +687,16 @@ export default function StreamsPage() {
     fetchStreams();
   }, [fetchStreams]);
 
+  const handleDeleteStream = async (name: string) => {
+    if (!window.confirm(`Delete stream "${name}"? This action cannot be undone.`)) return;
+    try {
+      await graphqlRequest(STREAM_DELETE_MUTATION, { name });
+      fetchStreams(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete stream");
+    }
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Header */}
@@ -733,6 +762,7 @@ export default function StreamsPage() {
                   key={stream.name}
                   stream={stream}
                   onViewMessages={() => setSelectedStream(stream.name)}
+                  onDelete={() => handleDeleteStream(stream.name)}
                 />
               ))}
         </div>
@@ -749,13 +779,14 @@ export default function StreamsPage() {
                 <TableHead className="text-right">Size</TableHead>
                 <TableHead className="text-right">Consumers</TableHead>
                 <TableHead className="text-right">Created</TableHead>
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading
                 ? Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 8 }).map((_, j) => (
+                      {Array.from({ length: 9 }).map((_, j) => (
                         <TableCell key={j}>
                           <Skeleton className="h-5 w-full" />
                         </TableCell>
@@ -813,6 +844,19 @@ export default function StreamsPage() {
                       </TableCell>
                       <TableCell className="text-right text-sm text-muted-foreground">
                         {formatDate(stream.created)}
+                      </TableCell>
+                      <TableCell className="w-10 px-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-muted-foreground/50 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteStream(stream.name);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}

@@ -109,9 +109,15 @@ const KV_PUT_MUTATION = `
   }
 `;
 
-const KV_DELETE_MUTATION = `
+const KV_PURGE_MUTATION = `
   mutation($bucket: String!, $key: String!) {
-    kvDelete(bucket: $bucket, key: $key)
+    kvPurge(bucket: $bucket, key: $key)
+  }
+`;
+
+const KV_DELETE_BUCKET_MUTATION = `
+  mutation($bucket: String!) {
+    kvDeleteBucket(bucket: $bucket)
   }
 `;
 
@@ -399,7 +405,7 @@ function KVKeyRow({
     try {
       setDeleting(true);
       setError(null);
-      await graphqlRequest(KV_DELETE_MUTATION, { bucket, key: keyName });
+      await graphqlRequest(KV_PURGE_MUTATION, { bucket, key: keyName });
       onDeleted();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete");
@@ -535,10 +541,12 @@ function KVKeysDialog({
   bucket,
   open,
   onOpenChange,
+  onKeysChanged,
 }: {
   bucket: string | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onKeysChanged?: () => void;
 }) {
   const [keys, setKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
@@ -587,6 +595,7 @@ function KVKeysDialog({
       setPutValue("");
       setShowPut(false);
       fetchKeys();
+      onKeysChanged?.();
     } catch (err) {
       setPutError(err instanceof Error ? err.message : "Failed to put key");
     } finally {
@@ -700,7 +709,7 @@ function KVKeysDialog({
                   key={keyName}
                   bucket={bucket}
                   keyName={keyName}
-                  onDeleted={fetchKeys}
+                  onDeleted={() => { fetchKeys(); onKeysChanged?.(); }}
                 />
               ))}
             </div>
@@ -712,7 +721,15 @@ function KVKeysDialog({
 }
 
 /* ─── Mobile Card ─── */
-function KVCard({ kv, onViewKeys }: { kv: KeyValue; onViewKeys: () => void }) {
+function KVCard({
+  kv,
+  onViewKeys,
+  onDelete,
+}: {
+  kv: KeyValue;
+  onViewKeys: () => void;
+  onDelete: () => void;
+}) {
   return (
     <Card className="border-border/50 bg-card/50">
       <CardContent className="space-y-3 p-4">
@@ -721,14 +738,24 @@ function KVCard({ kv, onViewKeys }: { kv: KeyValue; onViewKeys: () => void }) {
             <Database className="h-3.5 w-3.5 text-primary" />
             <span className="font-semibold">{kv.bucket}</span>
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs text-muted-foreground"
-            onClick={onViewKeys}
-          >
-            Keys
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={onViewKeys}
+            >
+              Keys
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+              onClick={onDelete}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -810,6 +837,16 @@ export default function KVPage() {
     fetchKV();
   }, [fetchKV]);
 
+  const handleDeleteBucket = async (bucket: string) => {
+    if (!window.confirm(`Delete KV bucket "${bucket}"? This action cannot be undone.`)) return;
+    try {
+      await graphqlRequest(KV_DELETE_BUCKET_MUTATION, { bucket });
+      fetchKV(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete bucket");
+    }
+  };
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Header */}
@@ -850,6 +887,7 @@ export default function KVPage() {
         bucket={selectedBucket}
         open={selectedBucket !== null}
         onOpenChange={(open) => { if (!open) setSelectedBucket(null); }}
+        onKeysChanged={() => fetchKV(true)}
       />
 
       {/* Mobile: Cards / Desktop: Table */}
@@ -862,6 +900,7 @@ export default function KVPage() {
                   key={kv.bucket}
                   kv={kv}
                   onViewKeys={() => setSelectedBucket(kv.bucket)}
+                  onDelete={() => handleDeleteBucket(kv.bucket)}
                 />
               ))}
         </div>
@@ -877,13 +916,14 @@ export default function KVPage() {
                 <TableHead className="text-right">History</TableHead>
                 <TableHead className="text-right">TTL</TableHead>
                 <TableHead className="text-center">Compressed</TableHead>
+                <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading
                 ? Array.from({ length: 5 }).map((_, i) => (
                     <TableRow key={i}>
-                      {Array.from({ length: 7 }).map((_, j) => (
+                      {Array.from({ length: 8 }).map((_, j) => (
                         <TableCell key={j}>
                           <Skeleton className="h-5 w-full" />
                         </TableCell>
@@ -923,6 +963,19 @@ export default function KVPage() {
                         ) : (
                           <span className="text-sm text-muted-foreground/50">No</span>
                         )}
+                      </TableCell>
+                      <TableCell className="w-10 px-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-muted-foreground/50 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteBucket(kv.bucket);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
