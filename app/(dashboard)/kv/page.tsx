@@ -14,7 +14,31 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { RefreshCw, AlertCircle, Database } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  RefreshCw,
+  AlertCircle,
+  Database,
+  Plus,
+  Loader2,
+} from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 
 interface KeyValue {
@@ -37,6 +61,17 @@ const KV_QUERY = `
       bytes
       values
       isCompressed
+    }
+  }
+`;
+
+const KV_CREATE_MUTATION = `
+  mutation($bucket: String!, $history: Int, $ttl: Int, $storage: String) {
+    kvCreate(bucket: $bucket, history: $history, ttl: $ttl, storage: $storage) {
+      bucket
+      history
+      ttl
+      storage
     }
   }
 `;
@@ -66,6 +101,163 @@ function storageColor(storage: string): string {
     default:
       return "bg-muted text-muted-foreground";
   }
+}
+
+/* ─── Create KV Dialog ─── */
+function CreateKVDialog({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [bucket, setBucket] = useState("");
+  const [history, setHistory] = useState("1");
+  const [ttl, setTtl] = useState("0");
+  const [storage, setStorage] = useState("file");
+
+  const resetForm = () => {
+    setBucket("");
+    setHistory("1");
+    setTtl("0");
+    setStorage("file");
+    setError(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!bucket.trim()) {
+      setError("Bucket name is required");
+      return;
+    }
+
+    try {
+      setCreating(true);
+      setError(null);
+
+      await graphqlRequest(KV_CREATE_MUTATION, {
+        bucket: bucket.trim(),
+        history: parseInt(history) || 1,
+        ttl: parseInt(ttl) || 0,
+        storage,
+      });
+
+      setOpen(false);
+      resetForm();
+      onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create KV store");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (!v) resetForm();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" className="gap-2">
+          <Plus className="h-4 w-4" />
+          <span className="hidden sm:inline">Create KV</span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[425px]">
+        <form onSubmit={handleSubmit}>
+          <DialogHeader>
+            <DialogTitle>Create KV Store</DialogTitle>
+            <DialogDescription>
+              Create a new NATS JetStream key-value store.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            {/* Bucket Name */}
+            <div className="grid gap-2">
+              <Label htmlFor="bucket">Bucket Name</Label>
+              <Input
+                id="bucket"
+                placeholder="my-bucket"
+                value={bucket}
+                onChange={(e) => setBucket(e.target.value)}
+                disabled={creating}
+                autoFocus
+              />
+            </div>
+
+            {/* History */}
+            <div className="grid gap-2">
+              <Label htmlFor="history">History</Label>
+              <Input
+                id="history"
+                type="number"
+                min="1"
+                max="64"
+                value={history}
+                onChange={(e) => setHistory(e.target.value)}
+                disabled={creating}
+              />
+              <p className="text-xs text-muted-foreground">
+                Number of historical values to keep per key (1–64)
+              </p>
+            </div>
+
+            {/* TTL */}
+            <div className="grid gap-2">
+              <Label htmlFor="ttl">TTL (seconds)</Label>
+              <Input
+                id="ttl"
+                type="number"
+                min="0"
+                value={ttl}
+                onChange={(e) => setTtl(e.target.value)}
+                disabled={creating}
+              />
+              <p className="text-xs text-muted-foreground">
+                Time-to-live in seconds. 0 = no expiry.
+              </p>
+            </div>
+
+            {/* Storage */}
+            <div className="grid gap-2">
+              <Label>Storage Type</Label>
+              <Select
+                value={storage}
+                onValueChange={setStorage}
+                disabled={creating}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="file">File</SelectItem>
+                  <SelectItem value="memory">Memory</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Error */}
+            {error && (
+              <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2">
+                <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+                <p className="text-sm text-destructive">{error}</p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button type="submit" disabled={creating} className="gap-2">
+              {creating && <Loader2 className="h-4 w-4 animate-spin" />}
+              {creating ? "Creating..." : "Create"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 /* ─── Mobile Card ─── */
@@ -168,16 +360,19 @@ export default function KVPage() {
               : `${kvStores.length} store${kvStores.length !== 1 ? "s" : ""} found`}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => fetchKV(true)}
-          disabled={refreshing}
-          className="gap-2"
-        >
-          <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
-          <span className="hidden sm:inline">Refresh</span>
-        </Button>
+        <div className="flex items-center gap-2">
+          <CreateKVDialog onCreated={() => fetchKV(true)} />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchKV(true)}
+            disabled={refreshing}
+            className="gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
+            <span className="hidden sm:inline">Refresh</span>
+          </Button>
+        </div>
       </div>
 
       {/* Error */}
