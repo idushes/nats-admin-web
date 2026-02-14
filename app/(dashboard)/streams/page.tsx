@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { graphqlRequest } from "@/lib/graphql-client";
 import {
   Table,
@@ -14,12 +14,32 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   RefreshCw,
   AlertCircle,
   Radio,
   ChevronDown,
   Loader2,
+  Plus,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -71,6 +91,36 @@ const MESSAGES_QUERY = `
       subject
       data
       published
+    }
+  }
+`;
+
+const STREAM_CREATE_MUTATION = `
+  mutation(
+    $name: String!
+    $subjects: [String!]!
+    $retention: String
+    $storage: String
+    $replicas: Int
+    $maxConsumers: Int
+    $maxMsgs: Int
+    $maxBytes: Int
+  ) {
+    streamCreate(
+      name: $name
+      subjects: $subjects
+      retention: $retention
+      storage: $storage
+      replicas: $replicas
+      maxConsumers: $maxConsumers
+      maxMsgs: $maxMsgs
+      maxBytes: $maxBytes
+    ) {
+      name
+      subjects
+      retention
+      storage
+      replicas
     }
   }
 `;
@@ -139,6 +189,241 @@ function tryFormatJSON(data: string): { formatted: string; isJSON: boolean } {
   } catch {
     return { formatted: data, isJSON: false };
   }
+}
+
+/* ─── Create Stream Dialog ─── */
+function CreateStreamDialog({ onCreated }: { onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [name, setName] = useState("");
+  const [subjects, setSubjects] = useState("");
+  const [retention, setRetention] = useState("limits");
+  const [storage, setStorage] = useState("file");
+  const [replicas, setReplicas] = useState("1");
+  const [maxConsumers, setMaxConsumers] = useState("-1");
+  const [maxMsgs, setMaxMsgs] = useState("-1");
+  const [maxBytes, setMaxBytes] = useState("-1");
+
+  const resetForm = () => {
+    setName("");
+    setSubjects("");
+    setRetention("limits");
+    setStorage("file");
+    setReplicas("1");
+    setMaxConsumers("-1");
+    setMaxMsgs("-1");
+    setMaxBytes("-1");
+    setError(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!name.trim()) {
+      setError("Stream name is required");
+      return;
+    }
+
+    const subjectList = subjects
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (subjectList.length === 0) {
+      setError("At least one subject is required");
+      return;
+    }
+
+    try {
+      setCreating(true);
+      setError(null);
+
+      await graphqlRequest(STREAM_CREATE_MUTATION, {
+        name: name.trim(),
+        subjects: subjectList,
+        retention,
+        storage,
+        replicas: parseInt(replicas) || 1,
+        maxConsumers: parseInt(maxConsumers),
+        maxMsgs: parseInt(maxMsgs),
+        maxBytes: parseInt(maxBytes),
+      });
+
+      setOpen(false);
+      resetForm();
+      onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create stream");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (!v) resetForm();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" className="gap-2">
+          <Plus className="h-4 w-4" />
+          <span className="hidden sm:inline">Create Stream</span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto">
+        <form onSubmit={handleSubmit}>
+          <DialogHeader>
+            <DialogTitle>Create Stream</DialogTitle>
+            <DialogDescription>
+              Create a new NATS JetStream stream.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            {/* Name */}
+            <div className="grid gap-2">
+              <Label htmlFor="stream-name">Stream Name</Label>
+              <Input
+                id="stream-name"
+                placeholder="MY-STREAM"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                disabled={creating}
+                autoFocus
+              />
+            </div>
+
+            {/* Subjects */}
+            <div className="grid gap-2">
+              <Label htmlFor="stream-subjects">Subjects</Label>
+              <Input
+                id="stream-subjects"
+                placeholder="orders.>, payments.*"
+                value={subjects}
+                onChange={(e) => setSubjects(e.target.value)}
+                disabled={creating}
+              />
+              <p className="text-xs text-muted-foreground">
+                Comma-separated list of subjects
+              </p>
+            </div>
+
+            {/* Retention & Storage */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label>Retention</Label>
+                <Select
+                  value={retention}
+                  onValueChange={setRetention}
+                  disabled={creating}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="limits">Limits</SelectItem>
+                    <SelectItem value="interest">Interest</SelectItem>
+                    <SelectItem value="workqueue">WorkQueue</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid gap-2">
+                <Label>Storage</Label>
+                <Select
+                  value={storage}
+                  onValueChange={setStorage}
+                  disabled={creating}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="file">File</SelectItem>
+                    <SelectItem value="memory">Memory</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Replicas */}
+            <div className="grid gap-2">
+              <Label htmlFor="stream-replicas">Replicas</Label>
+              <Input
+                id="stream-replicas"
+                type="number"
+                min="1"
+                max="5"
+                value={replicas}
+                onChange={(e) => setReplicas(e.target.value)}
+                disabled={creating}
+              />
+            </div>
+
+            {/* Limits */}
+            <div className="grid grid-cols-3 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="stream-max-consumers">Max Consumers</Label>
+                <Input
+                  id="stream-max-consumers"
+                  type="number"
+                  min="-1"
+                  value={maxConsumers}
+                  onChange={(e) => setMaxConsumers(e.target.value)}
+                  disabled={creating}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="stream-max-msgs">Max Messages</Label>
+                <Input
+                  id="stream-max-msgs"
+                  type="number"
+                  min="-1"
+                  value={maxMsgs}
+                  onChange={(e) => setMaxMsgs(e.target.value)}
+                  disabled={creating}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="stream-max-bytes">Max Bytes</Label>
+                <Input
+                  id="stream-max-bytes"
+                  type="number"
+                  min="-1"
+                  value={maxBytes}
+                  onChange={(e) => setMaxBytes(e.target.value)}
+                  disabled={creating}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground -mt-2">
+              Use -1 for unlimited
+            </p>
+
+            {/* Error */}
+            {error && (
+              <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2">
+                <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+                <p className="text-sm text-destructive">{error}</p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button type="submit" disabled={creating} className="gap-2">
+              {creating && <Loader2 className="h-4 w-4 animate-spin" />}
+              {creating ? "Creating..." : "Create"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 /* ─── Messages Panel ─── */
@@ -361,7 +646,13 @@ export default function StreamsPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedStream, setExpandedStream] = useState<string | null>(null);
+  const [hideKV, setHideKV] = useState(true);
   const isMobile = useIsMobile();
+
+  const filteredStreams = useMemo(
+    () => (hideKV ? streams.filter((s) => !s.name.startsWith("KV_")) : streams),
+    [streams, hideKV]
+  );
 
   const fetchStreams = useCallback(async (isRefresh = false) => {
     try {
@@ -400,21 +691,31 @@ export default function StreamsPage() {
           <p className="text-sm text-muted-foreground">
             {loading
               ? "Loading..."
-              : `${streams.length} stream${streams.length !== 1 ? "s" : ""} found`}
+              : `${filteredStreams.length} stream${filteredStreams.length !== 1 ? "s" : ""} found`}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => fetchStreams(true)}
-          disabled={refreshing}
-          className="gap-2"
-        >
-          <RefreshCw
-            className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
-          />
-          <span className="hidden sm:inline">Refresh</span>
-        </Button>
+        <div className="flex items-center gap-2 sm:gap-3">
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <Checkbox
+              checked={hideKV}
+              onCheckedChange={(v) => setHideKV(v === true)}
+            />
+            <span className="text-xs text-muted-foreground whitespace-nowrap">Hide KV</span>
+          </label>
+          <CreateStreamDialog onCreated={() => fetchStreams(true)} />
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchStreams(true)}
+            disabled={refreshing}
+            className="gap-2"
+          >
+            <RefreshCw
+              className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`}
+            />
+            <span className="hidden sm:inline">Refresh</span>
+          </Button>
+        </div>
       </div>
 
       {/* Error */}
@@ -432,7 +733,7 @@ export default function StreamsPage() {
             ? Array.from({ length: 3 }).map((_, i) => (
                 <StreamCardSkeleton key={i} />
               ))
-            : streams.map((stream) => (
+            : filteredStreams.map((stream) => (
                 <StreamCard
                   key={stream.name}
                   stream={stream}
@@ -468,7 +769,7 @@ export default function StreamsPage() {
                       ))}
                     </TableRow>
                   ))
-                : streams.map((stream) => (
+                : filteredStreams.map((stream) => (
                     <React.Fragment key={stream.name}>
                       <TableRow
                         className="group transition-colors cursor-pointer"
@@ -548,7 +849,7 @@ export default function StreamsPage() {
       )}
 
       {/* Empty state */}
-      {!loading && !error && streams.length === 0 && (
+      {!loading && !error && filteredStreams.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <Radio className="mb-4 h-10 w-10 text-muted-foreground/40" />
           <p className="text-sm font-medium text-muted-foreground">
