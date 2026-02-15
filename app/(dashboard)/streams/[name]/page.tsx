@@ -134,12 +134,48 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   );
 }
 
+const MAX_RENDER_SIZE = 5000; // 5 KB — don't render messages larger than this
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function MessageRow({ msg }: { msg: StreamMessage }) {
   const [expanded, setExpanded] = useState(false);
-  const { formatted, isJSON } = tryFormatJSON(msg.data);
-  const preview = isJSON
-    ? truncateData(JSON.stringify(JSON.parse(msg.data)), 120)
-    : truncateData(msg.data, 120);
+  const isLarge = msg.data.length > MAX_RENDER_SIZE;
+
+  // Only parse/format if not too large
+  const { formatted, isJSON } = isLarge
+    ? { formatted: "", isJSON: false }
+    : tryFormatJSON(msg.data);
+
+  // Preview in the collapsed row — always safe (max 120 chars)
+  const preview = (() => {
+    if (isLarge) {
+      try {
+        return truncateData(JSON.stringify(JSON.parse(msg.data)), 120);
+      } catch {
+        return truncateData(msg.data, 120);
+      }
+    }
+    return isJSON
+      ? truncateData(JSON.stringify(JSON.parse(msg.data)), 120)
+      : truncateData(msg.data, 120);
+  })();
+
+  const previewIsJSON = (() => {
+    if (isLarge) {
+      try { JSON.parse(msg.data); return true; } catch { return false; }
+    }
+    return isJSON;
+  })();
+
+  // For large messages, show a truncated preview in the expanded view
+  const truncatedPreview = isLarge
+    ? msg.data.slice(0, 2000) + "\n\n… (truncated)"
+    : "";
 
   return (
     <div className="border-b border-border/20 last:border-0">
@@ -154,8 +190,13 @@ function MessageRow({ msg }: { msg: StreamMessage }) {
           {msg.subject}
         </code>
         <span className="text-[11px] font-mono truncate flex-1">
-          {isJSON ? <JsonHighlight json={preview} /> : <span className="text-muted-foreground/50">{preview}</span>}
+          {previewIsJSON ? <JsonHighlight json={preview} /> : <span className="text-muted-foreground/50">{preview}</span>}
         </span>
+        {isLarge && (
+          <span className="text-[10px] text-amber-400/60 shrink-0 font-mono">
+            {formatSize(msg.data.length)}
+          </span>
+        )}
         <span className="text-[10px] text-muted-foreground/40 shrink-0 tabular-nums">
           {formatTime(msg.published)}
         </span>
@@ -168,7 +209,20 @@ function MessageRow({ msg }: { msg: StreamMessage }) {
             <CopyButton text={msg.data} label="data" />
             <span className="text-[10px] text-muted-foreground/40">data</span>
           </div>
-          {isJSON ? (
+
+          {isLarge ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2">
+                <AlertCircle className="h-3.5 w-3.5 text-amber-400/70 shrink-0" />
+                <span className="text-xs text-amber-300/70">
+                  Large message ({formatSize(msg.data.length)}) — showing preview, use copy button for full content
+                </span>
+              </div>
+              <pre className="text-xs rounded-md bg-muted/30 p-2.5 overflow-x-auto font-mono text-foreground/50 max-h-[300px] overflow-y-auto">
+                {truncatedPreview}
+              </pre>
+            </div>
+          ) : isJSON ? (
             <pre className="text-xs rounded-md bg-muted/30 p-2.5 overflow-x-auto font-mono">
               <JsonHighlight json={formatted} />
             </pre>
