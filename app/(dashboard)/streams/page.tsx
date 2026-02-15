@@ -43,6 +43,7 @@ import {
   Send,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useRouter } from "next/navigation";
 
 interface StreamInfo {
   name: string;
@@ -572,106 +573,6 @@ function PublishMessageDialog() {
   );
 }
 
-/* ─── Messages Dialog ─── */
-function MessagesDialog({
-  streamName,
-  open,
-  onOpenChange,
-}: {
-  streamName: string | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  const [messages, setMessages] = useState<StreamMessage[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!streamName || !open) return;
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await graphqlRequest<{
-          streamMessages: StreamMessage[];
-        }>(MESSAGES_QUERY, { stream: streamName, last: 10 });
-        setMessages(data.streamMessages);
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to load messages"
-        );
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [streamName, open]);
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[700px] max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Radio className="h-4 w-4 text-primary" />
-            {streamName}
-          </DialogTitle>
-          <DialogDescription>Last 10 messages</DialogDescription>
-        </DialogHeader>
-
-        <div className="flex-1 overflow-y-auto min-h-0">
-          {loading && (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          )}
-
-          {error && (
-            <div className="flex items-center gap-2 px-4 py-3">
-              <AlertCircle className="h-4 w-4 text-destructive" />
-              <p className="text-xs text-destructive">{error}</p>
-            </div>
-          )}
-
-          {!loading && !error && messages.length === 0 && (
-            <p className="py-12 text-center text-sm text-muted-foreground/60">
-              No messages in this stream
-            </p>
-          )}
-
-          {!loading && !error && messages.length > 0 && (
-            <div className="divide-y divide-border/20">
-              {messages.map((msg) => {
-                const { formatted, isJSON } = tryFormatJSON(msg.data);
-                return (
-                  <div key={msg.sequence} className="px-1 py-3 first:pt-0">
-                    <div className="flex items-center gap-3 mb-1.5">
-                      <span className="font-mono text-xs text-muted-foreground/60">
-                        #{msg.sequence}
-                      </span>
-                      <code className="rounded bg-muted/50 px-1.5 py-0.5 text-xs font-mono text-muted-foreground">
-                        {msg.subject}
-                      </code>
-                      <span className="ml-auto text-[11px] text-muted-foreground/50">
-                        {formatMessageTime(msg.published)}
-                      </span>
-                    </div>
-                    <pre
-                      className={`text-xs rounded-md bg-muted/30 p-2.5 overflow-x-auto font-mono ${
-                        isJSON ? "text-emerald-400/80" : "text-foreground/70"
-                      }`}
-                    >
-                      {formatted}
-                    </pre>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 /* ─── Mobile Card View ─── */
 function StreamCard({
   stream,
@@ -796,9 +697,9 @@ export default function StreamsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [selectedStream, setSelectedStream] = useState<string | null>(null);
   const [hideKV, setHideKV] = useState(true);
   const isMobile = useIsMobile();
+  const router = useRouter();
 
   const filteredStreams = useMemo(
     () => (hideKV ? streams.filter((s) => !s.name.startsWith("KV_")) : streams),
@@ -884,12 +785,6 @@ export default function StreamsPage() {
         </div>
       )}
 
-      {/* Messages Dialog */}
-      <MessagesDialog
-        streamName={selectedStream}
-        open={selectedStream !== null}
-        onOpenChange={(open) => { if (!open) setSelectedStream(null); }}
-      />
 
       {/* Mobile: Card list / Desktop: Table */}
       {isMobile ? (
@@ -902,7 +797,7 @@ export default function StreamsPage() {
                 <StreamCard
                   key={stream.name}
                   stream={stream}
-                  onViewMessages={() => setSelectedStream(stream.name)}
+                  onViewMessages={() => router.push(`/streams/${encodeURIComponent(stream.name)}`)}
                   onDelete={() => handleDeleteStream(stream.name)}
                 />
               ))}
@@ -938,7 +833,7 @@ export default function StreamsPage() {
                     <TableRow
                       key={stream.name}
                       className="group transition-colors cursor-pointer"
-                      onClick={() => setSelectedStream(stream.name)}
+                      onClick={() => router.push(`/streams/${encodeURIComponent(stream.name)}`)}
                     >
                       <TableCell>
                         <div className="flex items-center gap-2">
