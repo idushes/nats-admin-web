@@ -107,6 +107,7 @@ const STREAM_CREATE_MUTATION = `
     $maxConsumers: Int
     $maxMsgs: Int
     $maxBytes: Int
+    $maxAge: Int
   ) {
     streamCreate(
       name: $name
@@ -117,12 +118,14 @@ const STREAM_CREATE_MUTATION = `
       maxConsumers: $maxConsumers
       maxMsgs: $maxMsgs
       maxBytes: $maxBytes
+      maxAge: $maxAge
     ) {
       name
       subjects
       retention
       storage
       replicas
+      maxAge
     }
   }
 `;
@@ -222,6 +225,8 @@ function CreateStreamDialog({ onCreated }: { onCreated: () => void }) {
   const [maxConsumers, setMaxConsumers] = useState("-1");
   const [maxMsgs, setMaxMsgs] = useState("-1");
   const [maxBytes, setMaxBytes] = useState("-1");
+  const [maxAgeValue, setMaxAgeValue] = useState("0");
+  const [maxAgeUnit, setMaxAgeUnit] = useState("3600"); // seconds per unit
 
   const resetForm = () => {
     setName("");
@@ -232,6 +237,8 @@ function CreateStreamDialog({ onCreated }: { onCreated: () => void }) {
     setMaxConsumers("-1");
     setMaxMsgs("-1");
     setMaxBytes("-1");
+    setMaxAgeValue("0");
+    setMaxAgeUnit("3600");
     setError(null);
   };
 
@@ -257,6 +264,8 @@ function CreateStreamDialog({ onCreated }: { onCreated: () => void }) {
       setCreating(true);
       setError(null);
 
+      const maxAgeSec = (parseInt(maxAgeValue) || 0) * (parseInt(maxAgeUnit) || 1);
+
       await graphqlRequest(STREAM_CREATE_MUTATION, {
         name: name.trim(),
         subjects: subjectList,
@@ -266,6 +275,7 @@ function CreateStreamDialog({ onCreated }: { onCreated: () => void }) {
         maxConsumers: parseInt(maxConsumers),
         maxMsgs: parseInt(maxMsgs),
         maxBytes: parseInt(maxBytes),
+        maxAge: maxAgeSec > 0 ? maxAgeSec : 0,
       });
 
       setOpen(false);
@@ -380,6 +390,40 @@ function CreateStreamDialog({ onCreated }: { onCreated: () => void }) {
                 onChange={(e) => setReplicas(e.target.value)}
                 disabled={creating}
               />
+            </div>
+
+            {/* Max Age */}
+            <div className="grid gap-2">
+              <Label>Max Age</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={maxAgeValue}
+                  onChange={(e) => setMaxAgeValue(e.target.value)}
+                  disabled={creating}
+                  className="flex-1"
+                />
+                <Select
+                  value={maxAgeUnit}
+                  onValueChange={setMaxAgeUnit}
+                  disabled={creating}
+                >
+                  <SelectTrigger className="w-[110px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Seconds</SelectItem>
+                    <SelectItem value="60">Minutes</SelectItem>
+                    <SelectItem value="3600">Hours</SelectItem>
+                    <SelectItem value="86400">Days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                0 = no expiry
+              </p>
             </div>
 
             {/* Limits */}
