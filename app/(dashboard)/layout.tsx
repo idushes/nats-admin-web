@@ -24,6 +24,7 @@ import {
   LogOut,
   Zap,
   Copy,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -38,6 +39,11 @@ const navItems = [
     title: "KV Stores",
     href: "/kv",
     icon: Database,
+  },
+  {
+    title: "Consumers",
+    href: "/consumers",
+    icon: Users,
   },
   {
     title: "Stream Copy",
