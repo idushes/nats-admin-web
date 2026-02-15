@@ -78,6 +78,42 @@ function truncateData(data: string, max = 120): string {
   return data.slice(0, max) + "…";
 }
 
+/* ─── JSON Syntax Highlighting ─── */
+function JsonHighlight({ json }: { json: string }) {
+  const tokens = json.split(
+    /("(?:\\.|[^"\\])*"\s*:\s*|"(?:\\.|[^"\\])*"|(?:\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?))/g
+  );
+
+  return (
+    <>
+      {tokens.map((token, i) => {
+        if (/".*":\s*$/.test(token)) {
+          const colonIdx = token.lastIndexOf(":");
+          return (
+            <span key={i}>
+              <span className="text-sky-300/70">{token.slice(0, colonIdx)}</span>
+              <span className="text-muted-foreground/40">{token.slice(colonIdx)}</span>
+            </span>
+          );
+        }
+        if (/^"/.test(token)) {
+          return <span key={i} className="text-emerald-300/60">{token}</span>;
+        }
+        if (/^(true|false)$/.test(token)) {
+          return <span key={i} className="text-amber-300/60">{token}</span>;
+        }
+        if (/^null$/.test(token)) {
+          return <span key={i} className="text-rose-300/50">{token}</span>;
+        }
+        if (/^-?\d/.test(token)) {
+          return <span key={i} className="text-purple-300/60">{token}</span>;
+        }
+        return <span key={i} className="text-muted-foreground/40">{token}</span>;
+      })}
+    </>
+  );
+}
+
 /* ─── Compact Message Row ─── */
 function CopyButton({ text, label }: { text: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -117,10 +153,8 @@ function MessageRow({ msg }: { msg: StreamMessage }) {
         <code className="text-[11px] font-mono text-primary/70 shrink-0 bg-primary/5 rounded px-1.5 py-0.5">
           {msg.subject}
         </code>
-        <span
-          className={`text-[11px] font-mono truncate flex-1 ${isJSON ? "text-emerald-400/60" : "text-muted-foreground/50"}`}
-        >
-          {preview}
+        <span className="text-[11px] font-mono truncate flex-1">
+          {isJSON ? <JsonHighlight json={preview} /> : <span className="text-muted-foreground/50">{preview}</span>}
         </span>
         <span className="text-[10px] text-muted-foreground/40 shrink-0 tabular-nums">
           {formatTime(msg.published)}
@@ -134,13 +168,15 @@ function MessageRow({ msg }: { msg: StreamMessage }) {
             <CopyButton text={msg.data} label="data" />
             <span className="text-[10px] text-muted-foreground/40">data</span>
           </div>
-          <pre
-            className={`text-xs rounded-md bg-muted/30 p-2.5 overflow-x-auto font-mono ${
-              isJSON ? "text-emerald-400/80" : "text-foreground/70"
-            }`}
-          >
-            {formatted}
-          </pre>
+          {isJSON ? (
+            <pre className="text-xs rounded-md bg-muted/30 p-2.5 overflow-x-auto font-mono">
+              <JsonHighlight json={formatted} />
+            </pre>
+          ) : (
+            <pre className="text-xs rounded-md bg-muted/30 p-2.5 overflow-x-auto font-mono text-foreground/70">
+              {formatted}
+            </pre>
+          )}
         </div>
       )}
     </div>
