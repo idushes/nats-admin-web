@@ -40,6 +40,7 @@ import {
   Loader2,
   Plus,
   Trash2,
+  Send,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -128,6 +129,15 @@ const STREAM_CREATE_MUTATION = `
 const STREAM_DELETE_MUTATION = `
   mutation($name: String!) {
     streamDelete(name: $name)
+  }
+`;
+
+const PUBLISH_MUTATION = `
+  mutation($subject: String!, $data: String!) {
+    publish(subject: $subject, data: $data) {
+      stream
+      sequence
+    }
   }
 `;
 
@@ -432,6 +442,136 @@ function CreateStreamDialog({ onCreated }: { onCreated: () => void }) {
   );
 }
 
+/* ─── Publish Message Dialog ─── */
+function PublishMessageDialog() {
+  const [open, setOpen] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  const [subject, setSubject] = useState("");
+  const [data, setData] = useState("");
+
+  const resetForm = () => {
+    setSubject("");
+    setData("");
+    setError(null);
+    setSuccess(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!subject.trim()) {
+      setError("Subject is required");
+      return;
+    }
+
+    try {
+      setPublishing(true);
+      setError(null);
+      setSuccess(null);
+
+      const result = await graphqlRequest<{
+        publish: { stream: string; sequence: number };
+      }>(PUBLISH_MUTATION, {
+        subject: subject.trim(),
+        data: data,
+      });
+
+      setSuccess(
+        `Published to ${result.publish.stream} (seq #${result.publish.sequence})`
+      );
+      setData("");
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Failed to publish message"
+      );
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (!v) resetForm();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-2">
+          <Send className="h-4 w-4" />
+          <span className="hidden sm:inline">Publish</span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-[520px]">
+        <form onSubmit={handleSubmit}>
+          <DialogHeader>
+            <DialogTitle>Publish Message</DialogTitle>
+            <DialogDescription>
+              Publish a message to a NATS subject.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            {/* Subject */}
+            <div className="grid gap-2">
+              <Label htmlFor="publish-subject">Subject</Label>
+              <Input
+                id="publish-subject"
+                placeholder="orders.new"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                disabled={publishing}
+                className="font-mono text-sm"
+                autoFocus
+              />
+            </div>
+
+            {/* Data */}
+            <div className="grid gap-2">
+              <Label htmlFor="publish-data">Data</Label>
+              <textarea
+                id="publish-data"
+                placeholder='{"id": 1, "type": "example"}'
+                value={data}
+                onChange={(e) => setData(e.target.value)}
+                className="w-full rounded-md border border-border bg-background p-2.5 text-xs font-mono text-foreground focus:outline-none focus:ring-1 focus:ring-primary min-h-[120px] resize-y"
+                disabled={publishing}
+              />
+            </div>
+
+            {/* Success */}
+            {success && (
+              <div className="flex items-center gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2">
+                <Send className="h-4 w-4 shrink-0 text-emerald-400" />
+                <p className="text-sm text-emerald-400">{success}</p>
+              </div>
+            )}
+
+            {/* Error */}
+            {error && (
+              <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2">
+                <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+                <p className="text-sm text-destructive">{error}</p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button type="submit" disabled={publishing} className="gap-2">
+              {publishing && <Loader2 className="h-4 w-4 animate-spin" />}
+              {publishing ? "Publishing..." : "Publish"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ─── Messages Dialog ─── */
 function MessagesDialog({
   streamName,
@@ -719,6 +859,7 @@ export default function StreamsPage() {
             />
             <span className="text-xs text-muted-foreground whitespace-nowrap">Hide KV</span>
           </label>
+          <PublishMessageDialog />
           <CreateStreamDialog onCreated={() => fetchStreams(true)} />
           <Button
             variant="outline"
