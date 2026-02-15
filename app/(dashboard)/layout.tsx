@@ -25,6 +25,7 @@ import {
   Zap,
   Copy,
   Users,
+  Wrench,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -49,6 +50,11 @@ const navItems = [
     title: "Stream Copy",
     href: "/stream-copy",
     icon: Copy,
+  },
+  {
+    title: "Utilities",
+    href: "/utilities",
+    icon: Wrench,
   },
 ];
 
