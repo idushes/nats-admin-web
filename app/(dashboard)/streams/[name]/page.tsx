@@ -332,7 +332,7 @@ export default function StreamMessagesPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [subjectFilter, setSubjectFilter] = useState("");
-  const [limit, setLimit] = useState(30);
+  const [limit, setLimit] = useState(5);
 
   const fetchMessages = useCallback(
     async (isRefresh = false) => {
@@ -408,6 +408,8 @@ export default function StreamMessagesPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="5">5</SelectItem>
+              <SelectItem value="10">10</SelectItem>
               <SelectItem value="30">30</SelectItem>
               <SelectItem value="50">50</SelectItem>
               <SelectItem value="100">100</SelectItem>
