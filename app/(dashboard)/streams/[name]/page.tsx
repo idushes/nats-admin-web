@@ -13,6 +13,7 @@ import {
   Send,
   Copy,
   Check,
+  Download,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -208,6 +209,28 @@ function MessageRow({ msg }: { msg: StreamMessage }) {
             <span className="text-[10px] text-muted-foreground/40">subject</span>
             <CopyButton text={msg.data} label="data" />
             <span className="text-[10px] text-muted-foreground/40">data</span>
+            {isLarge && (
+              <>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const isJson = (() => { try { JSON.parse(msg.data); return true; } catch { return false; } })();
+                    const blob = new Blob([msg.data], { type: isJson ? "application/json" : "text/plain" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `${msg.subject}_seq${msg.sequence}.${isJson ? "json" : "txt"}`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/50 hover:text-primary transition-colors"
+                  title="Download data"
+                >
+                  <Download className="h-3 w-3" />
+                </button>
+                <span className="text-[10px] text-muted-foreground/40">download</span>
+              </>
+            )}
           </div>
 
           {isLarge ? (
@@ -215,7 +238,7 @@ function MessageRow({ msg }: { msg: StreamMessage }) {
               <div className="flex items-center gap-2 rounded-md border border-amber-500/20 bg-amber-500/5 px-3 py-2">
                 <AlertCircle className="h-3.5 w-3.5 text-amber-400/70 shrink-0" />
                 <span className="text-xs text-amber-300/70">
-                  Large message ({formatSize(msg.data.length)}) — showing preview, use copy button for full content
+                  Large message ({formatSize(msg.data.length)}) — use copy or download for full content
                 </span>
               </div>
               <pre className="text-xs rounded-md bg-muted/30 p-2.5 overflow-x-auto font-mono text-foreground/50 max-h-[300px] overflow-y-auto">
