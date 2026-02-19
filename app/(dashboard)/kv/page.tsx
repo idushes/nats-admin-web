@@ -121,6 +121,14 @@ const KV_DELETE_BUCKET_MUTATION = `
   }
 `;
 
+const KV_UPDATE_MUTATION = `
+  mutation($bucket: String!, $history: Int, $ttl: Int) {
+    kvUpdate(bucket: $bucket, history: $history, ttl: $ttl) {
+      bucket
+    }
+  }
+`;
+
 interface KVEntry {
   key: string;
   value: string;
@@ -304,6 +312,141 @@ function CreateKVDialog({ onCreated }: { onCreated: () => void }) {
             <Button type="submit" disabled={creating} className="gap-2">
               {creating && <Loader2 className="h-4 w-4 animate-spin" />}
               {creating ? "Creating..." : "Create"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ─── Edit KV Dialog ─── */
+function EditKVDialog({
+  kv,
+  onUpdated,
+  isMobile,
+}: {
+  kv: KeyValue;
+  onUpdated: () => void;
+  isMobile?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [history, setHistory] = useState("");
+  const [ttl, setTtl] = useState("");
+
+  const initForm = () => {
+    setHistory(String(kv.history));
+    setTtl(String(kv.ttl));
+    setError(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    try {
+      setSaving(true);
+      setError(null);
+
+      await graphqlRequest(KV_UPDATE_MUTATION, {
+        bucket: kv.bucket,
+        history: parseInt(history) || 1,
+        ttl: parseInt(ttl) || 0,
+      });
+
+      setOpen(false);
+      onUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update KV store");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (v) initForm();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={
+            isMobile
+              ? "h-7 w-7 p-0 text-muted-foreground hover:text-primary"
+              : "h-7 w-7 p-0 text-muted-foreground/50 hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"
+          }
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        className="sm:max-w-[425px]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <form onSubmit={handleSubmit}>
+          <DialogHeader>
+            <DialogTitle>Edit KV — {kv.bucket}</DialogTitle>
+            <DialogDescription>
+              Update KV store configuration.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            {/* History */}
+            <div className="grid gap-2">
+              <Label htmlFor="edit-kv-history">History</Label>
+              <Input
+                id="edit-kv-history"
+                type="number"
+                min="1"
+                max="64"
+                value={history}
+                onChange={(e) => setHistory(e.target.value)}
+                disabled={saving}
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground">
+                Number of historical values to keep per key (1–64)
+              </p>
+            </div>
+
+            {/* TTL */}
+            <div className="grid gap-2">
+              <Label htmlFor="edit-kv-ttl">TTL (seconds)</Label>
+              <Input
+                id="edit-kv-ttl"
+                type="number"
+                min="0"
+                value={ttl}
+                onChange={(e) => setTtl(e.target.value)}
+                disabled={saving}
+              />
+              <p className="text-xs text-muted-foreground">
+                Time-to-live in seconds. 0 = no expiry.
+              </p>
+            </div>
+
+            {/* Error */}
+            {error && (
+              <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2">
+                <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+                <p className="text-sm text-destructive">{error}</p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button type="submit" disabled={saving} className="gap-2">
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+              {saving ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </form>
@@ -724,10 +867,12 @@ function KVKeysDialog({
 function KVCard({
   kv,
   onViewKeys,
+  onUpdated,
   onDelete,
 }: {
   kv: KeyValue;
   onViewKeys: () => void;
+  onUpdated: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -747,6 +892,7 @@ function KVCard({
             >
               Keys
             </Button>
+            <EditKVDialog kv={kv} onUpdated={onUpdated} isMobile />
             <Button
               variant="ghost"
               size="sm"
@@ -900,6 +1046,7 @@ export default function KVPage() {
                   key={kv.bucket}
                   kv={kv}
                   onViewKeys={() => setSelectedBucket(kv.bucket)}
+                  onUpdated={() => fetchKV(true)}
                   onDelete={() => handleDeleteBucket(kv.bucket)}
                 />
               ))}
@@ -964,18 +1111,24 @@ export default function KVPage() {
                           <span className="text-sm text-muted-foreground/50">No</span>
                         )}
                       </TableCell>
-                      <TableCell className="w-10 px-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-muted-foreground/50 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteBucket(kv.bucket);
-                          }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                      <TableCell className="w-20 px-2">
+                        <div className="flex items-center gap-0.5">
+                          <EditKVDialog
+                            kv={kv}
+                            onUpdated={() => fetchKV(true)}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-muted-foreground/50 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteBucket(kv.bucket);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

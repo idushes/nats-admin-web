@@ -41,6 +41,7 @@ import {
   Plus,
   Trash2,
   Send,
+  Pencil,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useRouter } from "next/navigation";
@@ -135,6 +136,28 @@ const STREAM_CREATE_MUTATION = `
 const STREAM_DELETE_MUTATION = `
   mutation($name: String!) {
     streamDelete(name: $name)
+  }
+`;
+
+const STREAM_UPDATE_MUTATION = `
+  mutation(
+    $name: String!
+    $subjects: [String!]
+    $maxMsgs: Int
+    $maxBytes: Int
+    $maxAge: Int
+    $replicas: Int
+  ) {
+    streamUpdate(
+      name: $name
+      subjects: $subjects
+      maxMsgs: $maxMsgs
+      maxBytes: $maxBytes
+      maxAge: $maxAge
+      replicas: $replicas
+    ) {
+      name
+    }
   }
 `;
 
@@ -279,7 +302,8 @@ function CreateStreamDialog({ onCreated }: { onCreated: () => void }) {
       setCreating(true);
       setError(null);
 
-      const maxAgeSec = (parseInt(maxAgeValue) || 0) * (parseInt(maxAgeUnit) || 1);
+      const maxAgeSec =
+        (parseInt(maxAgeValue) || 0) * (parseInt(maxAgeUnit) || 1);
 
       await graphqlRequest(STREAM_CREATE_MUTATION, {
         name: name.trim(),
@@ -436,9 +460,7 @@ function CreateStreamDialog({ onCreated }: { onCreated: () => void }) {
                   </SelectContent>
                 </Select>
               </div>
-              <p className="text-xs text-muted-foreground">
-                0 = no expiry
-              </p>
+              <p className="text-xs text-muted-foreground">0 = no expiry</p>
             </div>
 
             {/* Limits */}
@@ -502,6 +524,239 @@ function CreateStreamDialog({ onCreated }: { onCreated: () => void }) {
   );
 }
 
+/* ─── Edit Stream Dialog ─── */
+function EditStreamDialog({
+  stream,
+  onUpdated,
+  isMobile,
+}: {
+  stream: StreamInfo;
+  onUpdated: () => void;
+  isMobile?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [subjects, setSubjects] = useState("");
+  const [replicas, setReplicas] = useState("");
+  const [maxMsgs, setMaxMsgs] = useState("");
+  const [maxBytes, setMaxBytes] = useState("");
+  const [maxAgeValue, setMaxAgeValue] = useState("0");
+  const [maxAgeUnit, setMaxAgeUnit] = useState("3600");
+
+  const initForm = () => {
+    setSubjects(stream.subjects.join(", "));
+    setReplicas(String(stream.replicas));
+    setMaxMsgs(String(stream.maxMsgs));
+    setMaxBytes(String(stream.maxBytes));
+    setError(null);
+
+    // Convert maxAge seconds into a human-friendly value+unit
+    const age = stream.maxAge || 0;
+    if (age <= 0) {
+      setMaxAgeValue("0");
+      setMaxAgeUnit("3600");
+    } else if (age % 86400 === 0) {
+      setMaxAgeValue(String(age / 86400));
+      setMaxAgeUnit("86400");
+    } else if (age % 3600 === 0) {
+      setMaxAgeValue(String(age / 3600));
+      setMaxAgeUnit("3600");
+    } else if (age % 60 === 0) {
+      setMaxAgeValue(String(age / 60));
+      setMaxAgeUnit("60");
+    } else {
+      setMaxAgeValue(String(age));
+      setMaxAgeUnit("1");
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const subjectList = subjects
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    if (subjectList.length === 0) {
+      setError("At least one subject is required");
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError(null);
+
+      const maxAgeSec =
+        (parseInt(maxAgeValue) || 0) * (parseInt(maxAgeUnit) || 1);
+
+      await graphqlRequest(STREAM_UPDATE_MUTATION, {
+        name: stream.name,
+        subjects: subjectList,
+        replicas: parseInt(replicas) || 1,
+        maxMsgs: parseInt(maxMsgs),
+        maxBytes: parseInt(maxBytes),
+        maxAge: maxAgeSec > 0 ? maxAgeSec : 0,
+      });
+
+      setOpen(false);
+      onUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update stream");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (v) initForm();
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className={
+            isMobile
+              ? "h-7 w-7 p-0 text-muted-foreground hover:text-primary"
+              : "h-7 w-7 p-0 text-muted-foreground/50 hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity"
+          }
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        className="sm:max-w-[480px] max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <form onSubmit={handleSubmit}>
+          <DialogHeader>
+            <DialogTitle>Edit Stream — {stream.name}</DialogTitle>
+            <DialogDescription>
+              Update stream configuration. Only modifiable fields are shown.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            {/* Subjects */}
+            <div className="grid gap-2">
+              <Label htmlFor="edit-stream-subjects">Subjects</Label>
+              <Input
+                id="edit-stream-subjects"
+                placeholder="orders.>, payments.*"
+                value={subjects}
+                onChange={(e) => setSubjects(e.target.value)}
+                disabled={saving}
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground">
+                Comma-separated list of subjects
+              </p>
+            </div>
+
+            {/* Replicas */}
+            <div className="grid gap-2">
+              <Label htmlFor="edit-stream-replicas">Replicas</Label>
+              <Input
+                id="edit-stream-replicas"
+                type="number"
+                min="1"
+                max="5"
+                value={replicas}
+                onChange={(e) => setReplicas(e.target.value)}
+                disabled={saving}
+              />
+            </div>
+
+            {/* Max Age */}
+            <div className="grid gap-2">
+              <Label>Max Age</Label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={maxAgeValue}
+                  onChange={(e) => setMaxAgeValue(e.target.value)}
+                  disabled={saving}
+                  className="flex-1"
+                />
+                <Select
+                  value={maxAgeUnit}
+                  onValueChange={setMaxAgeUnit}
+                  disabled={saving}
+                >
+                  <SelectTrigger className="w-[110px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Seconds</SelectItem>
+                    <SelectItem value="60">Minutes</SelectItem>
+                    <SelectItem value="3600">Hours</SelectItem>
+                    <SelectItem value="86400">Days</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground">0 = no expiry</p>
+            </div>
+
+            {/* Limits */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="edit-stream-max-msgs">Max Messages</Label>
+                <Input
+                  id="edit-stream-max-msgs"
+                  type="number"
+                  min="-1"
+                  value={maxMsgs}
+                  onChange={(e) => setMaxMsgs(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-stream-max-bytes">Max Bytes</Label>
+                <Input
+                  id="edit-stream-max-bytes"
+                  type="number"
+                  min="-1"
+                  value={maxBytes}
+                  onChange={(e) => setMaxBytes(e.target.value)}
+                  disabled={saving}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground -mt-2">
+              Use -1 for unlimited
+            </p>
+
+            {/* Error */}
+            {error && (
+              <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2">
+                <AlertCircle className="h-4 w-4 shrink-0 text-destructive" />
+                <p className="text-sm text-destructive">{error}</p>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button type="submit" disabled={saving} className="gap-2">
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+              {saving ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /* ─── Publish Message Dialog ─── */
 function PublishMessageDialog() {
   const [open, setOpen] = useState(false);
@@ -540,12 +795,12 @@ function PublishMessageDialog() {
       });
 
       setSuccess(
-        `Published to ${result.publish.stream} (seq #${result.publish.sequence})`
+        `Published to ${result.publish.stream} (seq #${result.publish.sequence})`,
       );
       setData("");
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to publish message"
+        err instanceof Error ? err.message : "Failed to publish message",
       );
     } finally {
       setPublishing(false);
@@ -632,14 +887,15 @@ function PublishMessageDialog() {
   );
 }
 
-/* ─── Mobile Card View ─── */
 function StreamCard({
   stream,
   onViewMessages,
+  onUpdated,
   onDelete,
 }: {
   stream: StreamInfo;
   onViewMessages: () => void;
+  onUpdated: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -659,6 +915,7 @@ function StreamCard({
             >
               Messages
             </Button>
+            <EditStreamDialog stream={stream} onUpdated={onUpdated} isMobile />
             <Button
               variant="ghost"
               size="sm"
@@ -682,16 +939,10 @@ function StreamCard({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge
-            variant="outline"
-            className={retentionColor(stream.retention)}
-          >
+          <Badge variant="outline" className={retentionColor(stream.retention)}>
             {stream.retention}
           </Badge>
-          <Badge
-            variant="outline"
-            className={storageColor(stream.storage)}
-          >
+          <Badge variant="outline" className={storageColor(stream.storage)}>
             {stream.storage}
           </Badge>
           <Badge
@@ -723,9 +974,7 @@ function StreamCard({
             <p className="text-[11px] uppercase tracking-wider text-muted-foreground/60">
               Consumers
             </p>
-            <p className="font-mono text-sm font-medium">
-              {stream.consumers}
-            </p>
+            <p className="font-mono text-sm font-medium">{stream.consumers}</p>
           </div>
         </div>
 
@@ -768,7 +1017,7 @@ export default function StreamsPage() {
 
   const filteredStreams = useMemo(
     () => (hideKV ? streams.filter((s) => !s.name.startsWith("KV_")) : streams),
-    [streams, hideKV]
+    [streams, hideKV],
   );
 
   const fetchStreams = useCallback(async (isRefresh = false) => {
@@ -778,7 +1027,7 @@ export default function StreamsPage() {
       setError(null);
 
       const data = await graphqlRequest<{ streams: StreamInfo[] }>(
-        STREAMS_QUERY
+        STREAMS_QUERY,
       );
       setStreams(data.streams);
     } catch (err) {
@@ -794,7 +1043,10 @@ export default function StreamsPage() {
   }, [fetchStreams]);
 
   const handleDeleteStream = async (name: string) => {
-    if (!window.confirm(`Delete stream "${name}"? This action cannot be undone.`)) return;
+    if (
+      !window.confirm(`Delete stream "${name}"? This action cannot be undone.`)
+    )
+      return;
     try {
       await graphqlRequest(STREAM_DELETE_MUTATION, { name });
       fetchStreams(true);
@@ -823,7 +1075,9 @@ export default function StreamsPage() {
               checked={hideKV}
               onCheckedChange={(v) => setHideKV(v === true)}
             />
-            <span className="text-xs text-muted-foreground whitespace-nowrap">Hide KV</span>
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              Hide KV
+            </span>
           </label>
           <PublishMessageDialog />
           <CreateStreamDialog onCreated={() => fetchStreams(true)} />
@@ -850,7 +1104,6 @@ export default function StreamsPage() {
         </div>
       )}
 
-
       {/* Mobile: Card list / Desktop: Table */}
       {isMobile ? (
         <div className="space-y-3">
@@ -862,7 +1115,10 @@ export default function StreamsPage() {
                 <StreamCard
                   key={stream.name}
                   stream={stream}
-                  onViewMessages={() => router.push(`/streams/${encodeURIComponent(stream.name)}`)}
+                  onViewMessages={() =>
+                    router.push(`/streams/${encodeURIComponent(stream.name)}`)
+                  }
+                  onUpdated={() => fetchStreams(true)}
                   onDelete={() => handleDeleteStream(stream.name)}
                 />
               ))}
@@ -899,7 +1155,11 @@ export default function StreamsPage() {
                     <TableRow
                       key={stream.name}
                       className="group transition-colors cursor-pointer"
-                      onClick={() => router.push(`/streams/${encodeURIComponent(stream.name)}`)}
+                      onClick={() =>
+                        router.push(
+                          `/streams/${encodeURIComponent(stream.name)}`,
+                        )
+                      }
                     >
                       <TableCell>
                         <div className="flex items-center gap-2">
@@ -936,7 +1196,10 @@ export default function StreamsPage() {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline" className="bg-orange-500/10 text-orange-400 border-orange-500/20">
+                        <Badge
+                          variant="outline"
+                          className="bg-orange-500/10 text-orange-400 border-orange-500/20"
+                        >
                           {formatMaxAge(stream.maxAge)}
                         </Badge>
                       </TableCell>
@@ -952,18 +1215,24 @@ export default function StreamsPage() {
                       <TableCell className="text-right text-sm text-muted-foreground">
                         {formatDate(stream.created)}
                       </TableCell>
-                      <TableCell className="w-10 px-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-muted-foreground/50 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteStream(stream.name);
-                          }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
+                      <TableCell className="w-20 px-2">
+                        <div className="flex items-center gap-0.5">
+                          <EditStreamDialog
+                            stream={stream}
+                            onUpdated={() => fetchStreams(true)}
+                          />
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 w-7 p-0 text-muted-foreground/50 hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteStream(stream.name);
+                            }}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
