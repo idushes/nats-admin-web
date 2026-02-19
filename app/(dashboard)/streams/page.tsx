@@ -52,6 +52,7 @@ interface StreamInfo {
   maxConsumers: number;
   maxMsgs: number;
   maxBytes: number;
+  maxAge: number;
   storage: string;
   replicas: number;
   messages: number;
@@ -76,6 +77,7 @@ const STREAMS_QUERY = `
       maxConsumers
       maxMsgs
       maxBytes
+      maxAge
       storage
       replicas
       messages
@@ -209,6 +211,19 @@ function tryFormatJSON(data: string): { formatted: string; isJSON: boolean } {
   } catch {
     return { formatted: data, isJSON: false };
   }
+}
+
+function formatMaxAge(seconds: number): string {
+  if (!seconds || seconds <= 0) return "∞";
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0 && h === 0) return `${d}d`;
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0 && m === 0) return `${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${seconds}s`;
 }
 
 /* ─── Create Stream Dialog ─── */
@@ -666,7 +681,7 @@ function StreamCard({
           ))}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Badge
             variant="outline"
             className={retentionColor(stream.retention)}
@@ -678,6 +693,12 @@ function StreamCard({
             className={storageColor(stream.storage)}
           >
             {stream.storage}
+          </Badge>
+          <Badge
+            variant="outline"
+            className="bg-orange-500/10 text-orange-400 border-orange-500/20"
+          >
+            TTL: {formatMaxAge(stream.maxAge)}
           </Badge>
         </div>
 
@@ -855,6 +876,7 @@ export default function StreamsPage() {
                 <TableHead>Subjects</TableHead>
                 <TableHead>Retention</TableHead>
                 <TableHead>Storage</TableHead>
+                <TableHead>TTL</TableHead>
                 <TableHead className="text-right">Messages</TableHead>
                 <TableHead className="text-right">Size</TableHead>
                 <TableHead className="text-right">Consumers</TableHead>
@@ -911,6 +933,11 @@ export default function StreamsPage() {
                           className={storageColor(stream.storage)}
                         >
                           {stream.storage}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="bg-orange-500/10 text-orange-400 border-orange-500/20">
+                          {formatMaxAge(stream.maxAge)}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right font-mono text-sm">
