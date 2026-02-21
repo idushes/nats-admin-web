@@ -14,6 +14,7 @@ import {
   Copy,
   Check,
   Download,
+  RotateCw,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -143,8 +144,10 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function MessageRow({ msg }: { msg: StreamMessage }) {
+function MessageRow({ msg, onResend }: { msg: StreamMessage; onResend: (msg: StreamMessage) => Promise<void> }) {
   const [expanded, setExpanded] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendResult, setResendResult] = useState<{ ok: boolean; text: string } | null>(null);
   const isLarge = msg.data.length > MAX_RENDER_SIZE;
 
   // Only parse/format if not too large
@@ -177,6 +180,22 @@ function MessageRow({ msg }: { msg: StreamMessage }) {
   const truncatedPreview = isLarge
     ? msg.data.slice(0, 2000) + "\n\n… (truncated)"
     : "";
+
+  const handleResend = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      setResending(true);
+      setResendResult(null);
+      await onResend(msg);
+      setResendResult({ ok: true, text: "Sent" });
+      setTimeout(() => setResendResult(null), 2000);
+    } catch (err) {
+      setResendResult({ ok: false, text: err instanceof Error ? err.message : "Error" });
+      setTimeout(() => setResendResult(null), 3000);
+    } finally {
+      setResending(false);
+    }
+  };
 
   return (
     <div className="border-b border-border/20 last:border-0">
@@ -230,6 +249,20 @@ function MessageRow({ msg }: { msg: StreamMessage }) {
                 </button>
                 <span className="text-[10px] text-muted-foreground/40">download</span>
               </>
+            )}
+            <button
+              onClick={handleResend}
+              disabled={resending}
+              className="inline-flex items-center gap-1 text-[10px] text-muted-foreground/50 hover:text-primary transition-colors disabled:opacity-50"
+              title="Resend message"
+            >
+              {resending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCw className="h-3 w-3" />}
+            </button>
+            <span className="text-[10px] text-muted-foreground/40">resend</span>
+            {resendResult && (
+              <span className={`text-[10px] ${resendResult.ok ? "text-emerald-400" : "text-destructive"}`}>
+                {resendResult.ok ? "✓" : "✗"} {resendResult.text}
+              </span>
             )}
           </div>
 
@@ -494,7 +527,17 @@ export default function StreamMessagesPage() {
         ) : (
           <div>
             {[...messages].reverse().map((msg) => (
-              <MessageRow key={msg.sequence} msg={msg} />
+              <MessageRow
+                key={msg.sequence}
+                msg={msg}
+                onResend={async (m) => {
+                  await graphqlRequest(PUBLISH_MUTATION, {
+                    subject: m.subject,
+                    data: m.data,
+                  });
+                  fetchMessages(true);
+                }}
+              />
             ))}
           </div>
         )}
